@@ -72,7 +72,7 @@ int main(void)
 
     // non blocking sock
     int flag = fcntl(fd_socket, F_GETFL, 0);
-    fcntl(fd_socket, F_SETFL, flags | O_NONBLOCK);
+    fcntl(fd_socket, F_SETFL, flag | O_NONBLOCK);
 
     // bind()
     struct sockaddr_in server_addr;
@@ -120,17 +120,5 @@ int main(void)
         recv_thread.join();
     }
     close(fd_socket);
-}
-
-
-
-
-
-
-
-
-
-
-
     return 0;
 }
