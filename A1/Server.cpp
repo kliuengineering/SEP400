@@ -1,3 +1,4 @@
+#include <fstream>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +20,7 @@ std::atomic<bool> is_running(true);
 int fd_socket;
 std::mutex mutex_log;
 std::thread recv_thread;
+struct sockaddr_in logger_addr;
 
 
 // signal handler -> graceful shutdown
@@ -29,29 +31,74 @@ void ShutDownHandler(int sig)
 
 
 // receive thread
-void ReceiveMessage(void)
+void ReceiveMessage()
 {
     char buffer[SIZE_BUF];
     struct sockaddr_in client_addr;
     socklen_t len = sizeof(client_addr);
 
+    // accesses the log file
+    int log_fd = open("ServerLog", O_WRONLY | O_CREAT | O_APPEND, 0666);
+    if (log_fd < 0)
+    {
+        perror("Failed to open the log file");
+        return;
+    }
+
     while(is_running)
     {
-        std::unique_lock<std::mutex> lock(mutex_log, std::defer_lock);
-        int n = recvfrom(fd_socket, buffer, SIZE_BUF, 0, (struct sockaddr *)&client_addr, &len);
+        std::memset(buffer, 0, SIZE_BUF);
+        ssize_t msg_len = recvfrom(fd_socket, buffer, SIZE_BUF, 0, (struct sockaddr *)&client_addr, &len);
 
-        if(n > 0)
+        if(msg_len > 0)
         {
-            lock.lock();
+            // mutex lock
+            std::lock_guard<std::mutex> guard(mutex_log);
 
-            std::cout << "Received message -> " << buffer << std::endl;
-            // WIP: needs to implement a writing to a log file
+            // write the received message to the log
+            write(log_fd, buffer, msg_len);
 
-            lock.unlock();
+            // add a new line
+            write(log_fd, "\n", 1);
         }
         else
         {
             sleep(1);
+        }
+    
+    }
+
+    close(log_fd);
+}
+
+
+void SetSocketLevel()
+{
+    int level;
+    char buf[SIZE_BUF];
+
+    std::cout << "Enter log level (0=DEBUG, 1=WARNING, 2=ERROR, 3=CRITICAL) -> ";
+    std::cin >> level;
+
+    // input validation
+    if(level < 0 || level >3)
+    {
+        std::cout << "Invalid entry, please enter only 0, 1, 2, 3...\n";
+        return;
+    }
+
+    // stage the command being sent out
+    memset(buf, 0, SIZE_BUF);
+    int len = snprintf(buf, SIZE_BUF, "Set Log Level=%d", level) + 1;
+
+    // mutex locking
+    {
+        std::lock_guard<std::mutex> guard(mutex_log);
+
+        // sends command to the Logger
+        if ( sendto( fd_socket, buf, len, 0, (struct sockaddr *)&logger_addr, sizeof(logger_addr) )  < 0 )
+        {
+            perror("Failed to send log level command...\n");
         }
     }
 }
@@ -76,7 +123,7 @@ int main(void)
 
     // bind()
     struct sockaddr_in server_addr;
-    memset(&server_addr, 9, sizeof(server_addr));
+    memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);
@@ -87,6 +134,9 @@ int main(void)
         close(fd_socket);
         exit(EXIT_FAILURE);
     }
+
+    // Starting the receive thread
+    recv_thread = std::thread(ReceiveMessage);
 
 
     // starts the receive thread now
@@ -103,7 +153,7 @@ int main(void)
         switch (option)
         {
             case 1:
-                // WIP: implement set log level
+                SetSocketLevel();
             break;
 
             case 2:
