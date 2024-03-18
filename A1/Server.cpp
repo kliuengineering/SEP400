@@ -8,12 +8,16 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <thread>
 
 #define PORT 8080
 #define SIZE_BUF 1024
+
+const char ADDRESS_SERVER[] = "127.0.0.1";
+const char ADDRESS_CLIENT[] = "127.0.0.1";
 
 // global vars
 std::atomic<bool> is_running(true);
@@ -104,6 +108,32 @@ void SetSocketLevel()
 }
 
 
+void DumpLogFile()
+{
+    mutex_log.lock();
+
+    std::ifstream log_file("ServerLog", std::ifstream::in);
+    if (!log_file.is_open())
+    {
+        std::cerr << "Failed to open the log file for reading...\n";
+        mutex_log.unlock();
+        return;
+    }
+
+    std::string line;
+    while (getline(log_file, line))
+    {
+        std::cout << line << std::endl;
+    }
+
+    log_file.close();
+    mutex_log.unlock();
+
+    std::cout << "Press any key to continue...\n";
+    getchar();
+}
+
+
 // main()
 int main(void)
 {
@@ -125,7 +155,13 @@ int main(void)
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    
+    if( inet_pton(AF_INET, ADDRESS_SERVER, &server_addr.sin_addr) <=0 )
+    {
+        perror("inet_pton failed...\n");
+        exit(EXIT_FAILURE);
+    }
+
     server_addr.sin_port = htons(PORT);
 
     if ( bind(fd_socket, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0 )
@@ -134,6 +170,12 @@ int main(void)
         close(fd_socket);
         exit(EXIT_FAILURE);
     }
+
+    // logger initialization
+    memset(&logger_addr, 0, sizeof(logger_addr));
+    logger_addr.sin_family = AF_INET;
+    logger_addr.sin_port = htons(PORT);
+    inet_pton(AF_INET, ADDRESS_SERVER, &logger_addr.sin_addr);
 
     // Starting the receive thread
     recv_thread = std::thread(ReceiveMessage);
@@ -157,14 +199,15 @@ int main(void)
             break;
 
             case 2:
-                // WIP: implement dump log file
+                DumpLogFile();
             break;
         }
     } 
     while (option && is_running);
-    
+
 
     // shut down gracefully here
+    std::cout << "The server is now shutting down...\n";
     if (recv_thread.joinable())
     {
         recv_thread.join();

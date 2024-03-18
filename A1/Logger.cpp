@@ -1,4 +1,5 @@
 // required libs
+#include <iostream>
 #include <unistd.h>
 #include <atomic>
 #include <sys/types.h>
@@ -16,9 +17,12 @@
 #include <iterator>
 #include "Logger.h"
 
+
 // macroes
 #define PORT 8080
 #define SIZE_BUF 1024
+
+const char ADDRESS_SERVER[] = "127.0.0.1";
 
 // connections - address, port, socket
 struct sockaddr_in addr_server;
@@ -32,7 +36,7 @@ char buffer[SIZE_BUF];
 LOG_LEVEL log_level_current = DEBUG;
 
 // use atomic to avoid race condition
-std::atomic<bool> is_running = false;
+std::atomic<bool> is_running = true;
 
 // for threads
 std::thread recv_thread;
@@ -52,10 +56,46 @@ void *ReceiveData(void *arg)
     // needs thread function to receive data
     // remembeer to implement non-blocking receive_from call here
 
-    for(;;)
+    char buffer[SIZE_BUF];
+    struct sockaddr_in sender_addr;
+    socklen_t sender_len = sizeof(sender_addr);
+
+
+
+    while (is_running)
     {
         // needs to implement receive_from logic with non-blocking mode handled by socket flags
+
+        memset(buffer, 0, SIZE_BUF);
+        ssize_t msg_len = recvfrom( fd_socket, buffer, SIZE_BUF, 0, (struct sockaddr *)&sender_addr, &sender_len );
+
+        if(msg_len > 0)
+        {
+            pthread_mutex_lock(&mutex_log);
+
+            // let's attempt to parse the received message as a log level command now
+            int new_level;
+            if ( sscanf(buffer, "Set Log Level=%d", &new_level) == 1 )
+            {
+                if (new_level >= DEBUG && new_level <= CRITICAL)
+                {
+                    log_level_current = static_cast<LOG_LEVEL>(new_level);
+                    std::cout << "Log level updated to " << new_level << std::endl;
+                }
+                else
+                {
+                    std::cout << "Received invalid log level. " << new_level << std::endl;
+                }
+            }
+
+            pthread_mutex_unlock(&mutex_log);
+        }
+        else
+        {
+            sleep(1);
+        }
     }
+
     return nullptr;
 }
 
@@ -97,7 +137,11 @@ int InitializeLog(void)
     // configures the server info -> ipv4, port#, ip
     addr_server.sin_family = AF_INET;   
     addr_server.sin_port = htons(PORT);
-    addr_server.sin_addr.s_addr = INADDR_ANY;       // prototyping purposes -> ANY ip
+    if ( inet_pton(AF_INET, ADDRESS_SERVER, &addr_server.sin_addr) <=0 )       // prototyping purposes -> ANY ip
+    {
+        perror("inet_pton failed...\n");
+        exit(EXIT_FAILURE);
+    }
 
     // initializes mutex
     if(pthread_mutex_init(&mutex_log, NULL) != 0)
@@ -161,7 +205,8 @@ void Log(LOG_LEVEL level, const char *prog, const char *func, int line, const ch
     {
         if (sendto(fd_socket, buffer_local, strlen(buffer_local), 0, (struct sockaddr *)&addr_server, sizeof(addr_server)) < 0)
         {
-            // should we consider some error handling here?
+            perror("Error sending stuff to the server...\n");
+            exit(EXIT_FAILURE);
         }
     }
     pthread_mutex_unlock(&mutex_log);
