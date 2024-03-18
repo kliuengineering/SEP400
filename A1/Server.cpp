@@ -63,7 +63,7 @@ void ReceiveMessage()
             write(log_fd, buffer, msg_len);
 
             // add a new line
-            write(log_fd, "\n", 1);
+            // write(log_fd, "\n", 1);
         }
         else
         {
@@ -93,7 +93,7 @@ void SetSocketLevel()
 
     // stage the command being sent out
     memset(buf, 0, SIZE_BUF);
-    int len = snprintf(buf, SIZE_BUF, "Set Log Level=%d", level) + 1;
+    int len = snprintf(buf, SIZE_BUF, "%d", level) + 1;
 
     // mutex locking
     {
@@ -207,6 +207,7 @@ int main(void)
 
 
     // shut down gracefully here
+    fflush(stdin);
     std::cout << "The server is now shutting down...\n";
     if (recv_thread.joinable())
     {

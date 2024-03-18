@@ -60,23 +60,27 @@ void *ReceiveData(void *arg)
     struct sockaddr_in sender_addr;
     socklen_t sender_len = sizeof(sender_addr);
 
-
+    std::cout << "[MyDebugger] ---> inside ReceiveData()\n";
 
     while (is_running)
     {
         // needs to implement receive_from logic with non-blocking mode handled by socket flags
+        std::cout << "[MyDebugger] ---> inside ReceiveData() -> while()\n";
 
         memset(buffer, 0, SIZE_BUF);
         ssize_t msg_len = recvfrom( fd_socket, buffer, SIZE_BUF, 0, (struct sockaddr *)&sender_addr, &sender_len );
 
         if(msg_len > 0)
         {
+            std::cout << "[MyDebugger] ---> inside ReceiveData() -> while() -> before locking\n";
             pthread_mutex_lock(&mutex_log);
 
             // let's attempt to parse the received message as a log level command now
             int new_level;
-            if ( sscanf(buffer, "Set Log Level=%d", &new_level) == 1 )
+            if ( sscanf(buffer, "%d", &new_level) == 1 )
             {
+                std::cout << "[MyDebugger] ---> inside ReceiveData() -> while() -> after locking -> if(...)\n";
+
                 if (new_level >= DEBUG && new_level <= CRITICAL)
                 {
                     log_level_current = static_cast<LOG_LEVEL>(new_level);
@@ -140,6 +144,12 @@ int InitializeLog(void)
     if ( inet_pton(AF_INET, ADDRESS_SERVER, &addr_server.sin_addr) <=0 )       // prototyping purposes -> ANY ip
     {
         perror("inet_pton failed...\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if ( bind( fd_socket, (const struct sockaddr *)&addr_server, sizeof(addr_server) ) < 0 )
+    {
+        perror("Bind failed.\n");
         exit(EXIT_FAILURE);
     }
 
